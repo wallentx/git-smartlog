@@ -67,7 +67,8 @@ class TreeBuilder:
         c = commit
         while c != lca_commit:
             if len(c.parents) > 1:
-                logger.error("Merged commits are not supported!")
+                # Merged commits are not supported.
+                logger.debug("Merged commits are not supported!")
                 return                 
             node = self.node_lookup.get(c)
             if node is None:

@@ -2,13 +2,15 @@
 import argparse
 import configparser
 import git
+import json
 import logging
 import os
+import subprocess
 import sys
 from smartlog.builder import TreeBuilder
 from smartlog.printer import TreePrinter, TreeNodePrinter, RefMap
 from time import time
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 CONFIG_FNAME = "smartlog"
 
@@ -33,6 +35,84 @@ def resolve_head(config, repo, options: List[str]) -> Optional[str]:
 
     return None
 
+class GitHubPRStatus:
+    def __init__(
+        self,
+        id: str,
+        branch: str,
+        state: str,
+        decision: str,
+        checks: Dict[str, str],
+        title: str,
+        url: str,
+    ) -> None:
+        # GitHub PR ID.
+        self.id = id
+        # Full branch name, including origin/
+        self.branch = branch
+        # State, with valid values OPEN, MERGED and CLOSED
+        self.state = state
+        # Team decision, with valid values APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED and no decision
+        self.decision = decision
+        # Map of name of check to status, with values being PASSED, SKIPPED, FAILED or RUNNING
+        self.checks = checks
+        # Title of PR
+        self.title = title
+        # URL of PR
+        self.url = url
+
+    def __repr__(self) -> str:
+        return f"GitHubPRStatus({self.branch}, {self.state}, {self.decision}, {self.checks}, {self.title}, {self.url})"
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+def pull_gh_commits() -> Dict[str, GitHubPRStatus]:
+    try:
+        rawdata = subprocess.check_output([
+            'gh',
+            'pr',
+            'status',
+            '--json',
+            'number,state,reviewDecision,title,headRefName,statusCheckRollup,url'
+        ])
+    except Exception as e:
+        rawdata = None
+
+    if rawdata is None:
+        return {}
+
+    jsondata = json.loads(rawdata)
+    if 'createdBy' not in jsondata:
+        return {}
+
+    retval: Dict[str, GitHubPRStatus] = {}
+    for pr in jsondata['createdBy']:
+        checks: Dict[str, str] = {}
+        if 'statusCheckRollup' in pr:
+            for check in pr['statusCheckRollup']:
+                if check['status'] == 'COMPLETED':
+                    if check['conclusion'] == 'SUCCESS':
+                        checks[check['name']] = 'PASSED'
+                    elif check['conclusion'] == 'SKIPPED':
+                        checks[check['name']] = 'SKIPPED'
+                    else:
+                        checks[check['name']] = 'FAILED'
+                else:
+                    checks[check['name']] = 'RUNNING'
+
+        branch = 'origin/' + pr['headRefName']
+        retval[branch] = GitHubPRStatus(
+            id=str(pr['number']),
+            branch=branch,
+            state=pr['state'],
+            decision=pr['reviewDecision'] or None,
+            checks=checks,
+            title=pr['title'],
+            url=pr['url'],
+        )
+    return retval
+
 def main():
     start_time = time()
 
@@ -51,6 +131,9 @@ def main():
     except git.exc.InvalidGitRepositoryError:
         print("Could not find a git repository at {}".format(cwd))
         exit(1)
+
+    # Attempt to pull github information for repo as well.
+    prs = pull_gh_commits()
 
     # Load the smartlog config file
     config = configparser.ConfigParser(allow_no_value = True)
@@ -95,7 +178,7 @@ def main():
             except IndexError:
                 print(f"Unable to find {key} ref. Check configuration in .git/{CONFIG_FNAME} file")
 
-    node_printer = TreeNodePrinter(repo, refmap)
+    node_printer = TreeNodePrinter(repo, refmap, prs)
     tree_printer = TreePrinter(repo, node_printer)
     tree_printer.print_tree(tree_builder.root_node)
 

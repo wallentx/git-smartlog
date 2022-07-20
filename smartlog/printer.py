@@ -101,9 +101,10 @@ class TreePrinter:
         return sorted(node.children, key=compare)
 
 class TreeNodePrinter:
-    def __init__(self, repo, refmap):
+    def __init__(self, repo, refmap, prs):
         self.repo = repo
         self.refmap = refmap
+        self.prs = prs
 
     def node_summary(self, node):
         """
@@ -111,6 +112,7 @@ class TreeNodePrinter:
         The structure for this is:
         - line 1: sha author [branches] relative_time
         - line 2: commit summary (first line of message)
+        - optional extra lines: GitHub PR status
         """
         if node.commit is None:
             return []
@@ -127,11 +129,6 @@ class TreeNodePrinter:
         author = node.commit.author.email.rsplit("@")[0]
         line += author + "  "
 
-        # Add any diffs
-        diff = self.differential_revision(node.commit)
-        if diff is not None:
-            line += Fore.BLUE + diff + "  " + Fore.RESET
-
         # Add the branche names
         if self.refmap is not None:
             refs = self.refmap.get(node.commit)
@@ -146,20 +143,72 @@ class TreeNodePrinter:
         # Format the second line
         lines.append(node.commit.summary)
 
+        def decision_to_color(decision: str) -> str:
+            if decision == "APPROVED":
+                return Fore.GREEN
+            elif decision == "CHANGES_REQUESTED":
+                return Fore.RED
+            elif decision == "REVIEW_REQUIRED":
+                return Fore.YELLOW
+            else:
+                return Fore.RESET
+
+        def checks_to_color(checks: str) -> str:
+            if checks == "PASSED":
+                return Fore.GREEN
+            elif checks == "FAILED":
+                return Fore.RED
+            elif checks == "SKIPPED":
+                return Fore.YELLOW
+            else:
+                return Fore.RESET
+
+        # Format the PR lines, if available
+        if self.refmap is not None:
+            for ref in self.refmap.get(node.commit):
+                if ref in self.prs:
+                    pr = self.prs[ref]
+                    checks = "PASSED"
+                    for _, status in pr.checks.items():
+                        if status == "FAILED":
+                            # Any check failing causes the whole suite to be marked failed. We don't care if there's some
+                            # still running, since we already got a failure.
+                            checks = "FAILED"
+                            break
+                        elif status == "SKIPPED":
+                            # If we skipped a test, demote a "PASSED" to a "SKIPPED", but preserve a still running status.
+                            if checks == "PASSED":
+                                checks = "SKIPPED"
+                        elif status == "RUNNING":
+                            # If we are still running, demote a "PASSED or "SKIPPED" to "RUNNING"
+                            if checks in {"PASSED", "SKIPPED"}:
+                                checks = "RUNNING"
+
+                    lines.append("".join([
+                        Fore.CYAN,
+                        f"#{pr.id}",
+                        Fore.RESET,
+                        f"  {pr.title}  (",
+                        Fore.CYAN,
+                        pr.state,
+                        Fore.RESET,
+                        f", " if pr.decision else "",
+                        decision_to_color(pr.decision),
+                        pr.decision or "",
+                        Fore.RESET,
+                        ", ",
+                        checks_to_color(checks),
+                        f"CHECKS {checks}",
+                        Fore.RESET,
+                        ")",
+                    ]))
+                    lines.append("".join([
+                        Fore.BLUE,
+                        pr.url,
+                        Fore.RESET
+                    ]))
+
         return lines
-
-
-    def differential_revision(self, commit):
-        if commit is None:
-            return None
-
-        diff_line_prefix = "Differential Revision:"
-        lines = commit.message.splitlines()
-        for l in lines:
-            if l.startswith(diff_line_prefix):
-                l = l[len(diff_line_prefix):]
-                return l.strip().rsplit('/', 1)[-1]
-        return None
 
 
     def format_commit_date(self, timestamp):
@@ -212,11 +261,15 @@ class RefMap:
     def add(self, ref):
         if not ref:
             return
-        if not self.head_ref.is_detached and self.head_ref.ref == ref:
-            name = "HEAD -> " + ref.name
-        else:
-            name = ref.name
-        self.map[ref.commit.hexsha].add(name)
+        self.map[ref.commit.hexsha].add(ref.name)
 
     def get(self, commit):
-        return self.map[commit.hexsha]
+        def sortKey(val: str) -> str:
+            if val[:7] == "origin/":
+                return "zzzzzz" + val.lower()
+            return val.lower()
+
+        return sorted(
+            self.map[commit.hexsha],
+            key=sortKey
+        )
