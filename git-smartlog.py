@@ -8,6 +8,7 @@ import sys
 from smartlog.builder import TreeBuilder
 from smartlog.printer import TreePrinter, TreeNodePrinter, RefMap
 from time import time
+from typing import List, Optional
 
 CONFIG_FNAME = "smartlog"
 
@@ -21,9 +22,19 @@ def parse_args():
     parser.add_argument("-a", "--all", action="store_true", help="Force display all commits, regardless of time")
     return parser.parse_args()
 
+def resolve_head(config, repo, options: List[str]) -> Optional[str]:
+    for name in options:
+        head_refname = config.get("remote", "head", fallback=f"origin/{name}")
+        try:
+            head_ref = repo.refs[head_refname]
+            return head_ref
+        except IndexError:
+            pass
+
+    return None
+
 def main():
     start_time = time()
-
 
     args = parse_args()
 
@@ -47,13 +58,11 @@ def main():
     
     refmap = RefMap(repo.head)
 
-    head_refname = config.get("remote", "head", fallback="origin/HEAD")
-    try:
-        head_ref = repo.refs[head_refname]
-        refmap.add(head_ref)
-    except IndexError:
-        print(f"Unable to find {head_refname} branch")
+    head_ref = resolve_head(config, repo, ["develop", "main", "master"])
+    if head_ref is None:
+        print(f"Unable to find head branch!")
         exit(1)
+    refmap.add(head_ref)
 
     tree_builder = TreeBuilder(repo, head_ref.commit, date_limit = date_limit)
 
