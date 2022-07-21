@@ -3,6 +3,7 @@ import argparse
 import configparser
 import git
 import json
+import locale
 import logging
 import os
 import subprocess
@@ -32,6 +33,40 @@ def resolve_head(config, repo, options: List[str]) -> Optional[str]:
             return head_ref
         except IndexError:
             pass
+
+    return None
+
+def infer_default_branch(config, repo) -> Optional[str]:
+    # Grab the default encoding to decode shell output.
+    _, encoding = locale.getdefaultlocale()
+
+    # First, try to ask for the remote, take the first one we get.
+    try:
+        rawdata = subprocess.check_output([
+            'git',
+            'remote',
+        ])
+    except Exception as e:
+        return None
+
+    origins = [x.strip() for x in rawdata.decode(encoding).splitlines()]
+    default_origin = origins[0]
+
+    try:
+        rawdata = subprocess.check_output([
+            'git',
+            'remote',
+            'show',
+            default_origin,
+        ])
+    except Exception as e:
+        return None
+
+    remotes = [x.strip() for x in rawdata.decode(encoding).splitlines() if "HEAD" in x]
+
+    for remote in remotes:
+        if remote[:13] == "HEAD branch: ":
+            return remote[13:].strip()
 
     return None
 
@@ -77,9 +112,6 @@ def pull_gh_commits() -> Dict[str, GitHubPRStatus]:
             'number,state,reviewDecision,title,headRefName,statusCheckRollup,url'
         ])
     except Exception as e:
-        rawdata = None
-
-    if rawdata is None:
         return {}
 
     jsondata = json.loads(rawdata)
@@ -141,7 +173,12 @@ def main():
     
     refmap = RefMap(repo.head)
 
-    head_ref = resolve_head(config, repo, ["develop", "main", "master"])
+    # First, try to suss out remote branch default.
+    default_branch = infer_default_branch(config, repo)
+
+    # Now, try to infer the actual head ref from that. Fall back to common branch names
+    # across git.
+    head_ref = resolve_head(config, repo, [*([default_branch] if default_branch is not None else []), *["main", "trunk", "master"]])
     if head_ref is None:
         print(f"Unable to find head branch!")
         exit(1)
