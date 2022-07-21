@@ -122,7 +122,7 @@ def pull_gh_commits() -> Dict[str, GitHubPRStatus]:
     for pr in jsondata['createdBy']:
         checks: Dict[str, str] = {}
         if 'statusCheckRollup' in pr:
-            for check in pr['statusCheckRollup']:
+            for check in (pr['statusCheckRollup'] or []):
                 if check['status'] == 'COMPLETED':
                     if check['conclusion'] == 'SUCCESS':
                         checks[check['name']] = 'PASSED'

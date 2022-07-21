@@ -168,7 +168,7 @@ class TreeNodePrinter:
             for ref in self.refmap.get(node.commit):
                 if ref in self.prs:
                     pr = self.prs[ref]
-                    checks = "PASSED"
+                    checks = "PASSED" if pr.checks else "FAILED"
                     for _, status in pr.checks.items():
                         if status == "FAILED":
                             # Any check failing causes the whole suite to be marked failed. We don't care if there's some
