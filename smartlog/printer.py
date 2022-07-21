@@ -148,27 +148,23 @@ class TreeNodePrinter:
                 return Fore.GREEN
             elif decision == "CHANGES_REQUESTED":
                 return Fore.RED
-            elif decision == "REVIEW_REQUIRED":
-                return Fore.YELLOW
             else:
-                return Fore.RESET
+                return Fore.YELLOW
 
         def checks_to_color(checks: str) -> str:
             if checks == "PASSED":
                 return Fore.GREEN
             elif checks == "FAILED":
                 return Fore.RED
-            elif checks == "SKIPPED":
-                return Fore.YELLOW
             else:
-                return Fore.RESET
+                return Fore.YELLOW
 
         # Format the PR lines, if available
         if self.refmap is not None:
             for ref in self.refmap.get(node.commit):
                 if ref in self.prs:
                     pr = self.prs[ref]
-                    checks = "PASSED" if pr.checks else "FAILED"
+                    checks = "PASSED" if pr.checks else "PENDING"
                     for _, status in pr.checks.items():
                         if status == "FAILED":
                             # Any check failing causes the whole suite to be marked failed. We don't care if there's some
