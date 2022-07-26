@@ -141,7 +141,7 @@ class TreeNodePrinter:
         lines.append(line)
 
         # Format the second line
-        lines.append(node.commit.summary)
+        lines.append((Fore.MAGENTA if is_head else Fore.RESET) + node.commit.summary + Fore.RESET)
 
         def decision_to_color(decision: str) -> str:
             if decision == "APPROVED":
