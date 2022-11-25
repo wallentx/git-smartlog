@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import argparse
 import configparser
 import git
@@ -123,15 +124,16 @@ def pull_gh_commits() -> Dict[str, GitHubPRStatus]:
         checks: Dict[str, str] = {}
         if 'statusCheckRollup' in pr:
             for check in (pr['statusCheckRollup'] or []):
-                if check['status'] == 'COMPLETED':
-                    if check['conclusion'] == 'SUCCESS':
-                        checks[check['name']] = 'PASSED'
-                    elif check['conclusion'] == 'SKIPPED':
-                        checks[check['name']] = 'SKIPPED'
+                if check['__typename'] == 'CheckRun':
+                    if check['status'] == 'COMPLETED':
+                        if check['conclusion'] == 'SUCCESS':
+                            checks[check['name']] = 'PASSED'
+                        elif check['conclusion'] == 'SKIPPED':
+                            checks[check['name']] = 'SKIPPED'
+                        else:
+                            checks[check['name']] = 'FAILED'
                     else:
-                        checks[check['name']] = 'FAILED'
-                else:
-                    checks[check['name']] = 'RUNNING'
+                        checks[check['name']] = 'RUNNING'
 
         branch = 'origin/' + pr['headRefName']
         retval[branch] = GitHubPRStatus(
@@ -158,7 +160,7 @@ def main():
 
     # Attempt to open the git repo in the current working directory
     cwd = os.getcwd()
-    try:        
+    try:
         repo = git.Repo(cwd, search_parent_directories=True)
     except git.exc.InvalidGitRepositoryError:
         print("Could not find a git repository at {}".format(cwd))
@@ -170,7 +172,7 @@ def main():
     # Load the smartlog config file
     config = configparser.ConfigParser(allow_no_value = True)
     config.read(os.path.join(repo.git_dir, CONFIG_FNAME))
-    
+
     refmap = RefMap(repo.head)
 
     # First, try to suss out remote branch default.
@@ -219,7 +221,7 @@ def main():
     tree_printer = TreePrinter(repo, node_printer)
     tree_printer.print_tree(tree_builder.root_node)
 
-    if tree_builder.skip_count > 0: 
+    if tree_builder.skip_count > 0:
         print("Skipped {} old commits. Use `-a` argument to display them.".format(tree_builder.skip_count))
 
     print("Finished in {:.2f} s.".format(time() - start_time))
